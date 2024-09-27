@@ -336,7 +336,12 @@ impl GameSniffer {
             let token_command = command.parse_proto::<GetPlayerTokenRsp>().unwrap();
             let server_rand_key = token_command.server_rand_key;
             let seed = BASE64_STANDARD.decode(server_rand_key).unwrap();
-            let seed = match &self.key_5 {
+            let decr_key = match token_command.key_id {
+                4 => &self.key_4,
+                5 => &self.key_5,
+                _ => &self.key_5
+            };
+            let seed = match decr_key {
                 Some(key) => { key.decrypt(Pkcs1v15Encrypt, &seed).unwrap() }
                 None => { panic!("RSA key didn't decrypt") }
             };
