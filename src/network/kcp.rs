@@ -125,13 +125,13 @@ fn reformat_kcp_segments(data: &[u8]) -> Vec<u8> {
 
         let remaining_header = &data[i + 8..i + 28];
         let content_len = u32::from_le_bytes(data[i + 24..i + 28].try_into().unwrap()) as usize;
-        let content = &data[i + 28..i + 28 + content_len];
+        let content = &data[i + 28 + 4 ..i + 28 + 4 + content_len];
 
         for b in conv_id.iter().chain(remaining_header).chain(content) {
             reformatted_bytes.push(*b);
         }
 
-        i += 28 + content_len;
+        i += 28 + 4 + content_len;
     }
 
     trace!(" after split: {}", bytes_as_hex(&reformatted_bytes));

@@ -25,7 +25,7 @@
 //! Using RelicMainAffixConfig as an example
 //!
 //! ```no_run
-//! use reliquary::resource::excel::RelicMainAffixConfigMap;
+//! use artifactarium::resource::excel::RelicMainAffixConfigMap;
 //! let content = "";
 //! let config_map: RelicMainAffixConfigMap = serde_json::from_str(&content).unwrap();
 //! let config = config_map.get(&0, &1).unwrap(); // GroupID, AffixID

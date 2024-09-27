@@ -20,7 +20,7 @@
 //!
 //! ## Example
 //! ```
-//! use reliquary::network::{GamePacket, GameSniffer, ConnectionPacket};
+//! use artifactarium::network::{GamePacket, GameSniffer, ConnectionPacket};
 //!
 //! let packets: Vec<Vec<u8>> = vec![/**/];
 //!
@@ -48,15 +48,18 @@ use std::fmt::Write;
 
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
-use tracing::{debug, info, info_span, instrument, trace, warn};
+use rsa::{pkcs1::DecodeRsaPrivateKey, Pkcs1v15Encrypt, RsaPrivateKey};
+use tracing::{debug, error, info, info_span, instrument, trace, warn};
 
 use gen::command_id;
 
 use crate::network::connection::parse_connection_packet;
-use crate::network::crypto::{decrypt_command, lookup_initial_key, new_key_from_seed};
+use crate::network::crypto::{bruteforce, decrypt_command, lookup_initial_key, new_key_from_seed};
 use crate::network::gen::command_id::command_id_to_str;
-use crate::network::gen::proto::PlayerGetTokenScRsp::PlayerGetTokenScRsp;
+use crate::network::gen::proto::GetPlayerTokenRsp::GetPlayerTokenRsp;
+use crate::network::gen::proto::PacketHead::PacketHead;
 use crate::network::kcp::KcpSniffer;
+use crate::network::Key::Dispatch;
 
 fn bytes_as_hex(bytes: &[u8]) -> String {
     bytes.iter().fold(String::new(), |mut output, b| {
@@ -70,8 +73,9 @@ pub mod gen;
 mod connection;
 mod crypto;
 mod kcp;
+mod cs_rand;
 
-const PORTS: [u16; 2] = [23301, 23302];
+const PORTS: [u16; 2] = [22101, 22102];
 
 /// Top-level packet sent by the game
 pub enum GamePacket {
@@ -95,12 +99,12 @@ pub enum ConnectionPacket {
 /// ## Bit Layout
 /// | Bit indices     |  Type |  Name |
 /// | - | - | - |
-/// |   0..4      |  `u32`  |  Header (magic constant) |
-/// |   0..6      |  `u16`  |  command_id |
-/// |   6..8      |  `u16`  |  header_len (unsure) |
-/// |   8..12     |  `u32`  |  data_len |
-/// |  12..12+data_len |  variable  |  proto_data |
-/// | data_len..data_len+4  |  `u32`  |  Tail (magic constant) |
+/// |   0..2      |  `u16`  |  Header (magic constant) |
+/// |   2..4      |  `u16`  |  command_id |
+/// |   4..6      |  `u16`  |  header_len (unsure) |
+/// |   6..10     |  `u32`  |  data_len |
+/// |  10..10+data_len |  variable  |  proto_data |
+/// | data_len..data_len+2  |  `u16`  |  Tail (magic constant) |
 #[derive(Clone)]
 pub struct GameCommand {
     pub command_id: u16,
@@ -112,8 +116,8 @@ pub struct GameCommand {
 }
 
 impl GameCommand {
-    const HEADER_LEN: usize = 12;
-    const TAIL_LEN: usize = 4;
+    const HEADER_LEN: usize = 10;
+    const TAIL_LEN: usize = 2;
 
     #[instrument(skip(bytes), fields(len = bytes.len()))]
     pub fn try_new(bytes: Vec<u8>) -> Option<Self> {
@@ -123,12 +127,17 @@ impl GameCommand {
             return None;
         }
 
-        // skip header magic const
-        let command_id = u16::from_be_bytes(bytes[4..6].try_into().unwrap());
-        let header_len = u16::from_be_bytes(bytes[6..8].try_into().unwrap());
-        let data_len = u32::from_be_bytes(bytes[8..12].try_into().unwrap());
+        if bytes[0] != 0x45 || bytes[1] != 0x67 || bytes[bytes.len() - 2] != 0x89 || bytes[bytes.len() - 1] != 0xAB {
+            error!("Didn't get magic in try_new!");
+            return None;
+        }
 
-        let data = bytes[12..12 + data_len as usize + header_len as usize].to_vec();
+        // skip header magic const
+        let command_id = u16::from_be_bytes(bytes[2..4].try_into().unwrap());
+        let header_len = u16::from_be_bytes(bytes[4..6].try_into().unwrap());
+        let data_len = u32::from_be_bytes(bytes[6..10].try_into().unwrap());
+
+        let data = bytes[10..10 + data_len as usize + header_len as usize].to_vec();
         Some(GameCommand {
             command_id,
             header_len,
@@ -163,20 +172,39 @@ pub enum PacketDirection {
     Received,
 }
 
+pub enum Key {
+    Dispatch(Vec<u8>),
+    Session(Vec<u8>),
+}
+
 #[derive(Default)]
 pub struct GameSniffer {
     sent_kcp: Option<KcpSniffer>,
     recv_kcp: Option<KcpSniffer>,
-    key: Option<Vec<u8>>,
-    initial_keys: HashMap<u32, Vec<u8>>,
+    key: Option<Key>,
+    initial_keys: HashMap<u16, Vec<u8>>,
+    key_4: Option<RsaPrivateKey>,
+    key_5: Option<RsaPrivateKey>,
+    sent_time: Option<u64>,
+    seed: Option<u64>,
 }
 
 impl GameSniffer {
     pub fn new() -> Self {
-        Self::default()
+        let pem_data_4 = include_str!("gen/private_key_4.pem");
+        let pem_data_5 = include_str!("gen/private_key_5.pem");
+
+        let rsa_4 = RsaPrivateKey::from_pkcs1_pem(pem_data_4).unwrap();
+        let rsa_5 = RsaPrivateKey::from_pkcs1_pem(pem_data_5).unwrap();
+
+        GameSniffer {
+            key_4: Some(rsa_4),
+            key_5: Some(rsa_5),
+            ..Default::default()
+        }
     }
 
-    pub fn set_initial_keys(mut self, initial_keys: HashMap<u32, Vec<u8>>) -> Self {
+    pub fn set_initial_keys(mut self, initial_keys: HashMap<u16, Vec<u8>>) -> Self {
         self.initial_keys = initial_keys;
         self
     }
@@ -238,12 +266,55 @@ impl GameSniffer {
 
     #[instrument(skip_all, fields(len = data.len()))]
     fn receive_command(&mut self, mut data: Vec<u8>) -> Option<GameCommand> {
-        let key = match &self.key {
-            Some(k) => k,
+        let key_r = match &self.key {
             None => {
-                self.key = Some(lookup_initial_key(&self.initial_keys, &data));
-                self.key.as_ref().unwrap()
+                let key = lookup_initial_key(&self.initial_keys, &data);
+                match key {
+                    Some(key) => {
+                        self.key = Some(Dispatch(key));
+                        self.key.as_ref().unwrap()
+                    }
+                    None => {
+                        panic!("No dispatch key found")
+                    }
+                }
             }
+            Some(Dispatch(k)) => {
+
+                let mut test = data.clone();
+                decrypt_command(k, &mut test);
+
+                if test[0] == 0x45 && test[1] == 0x67 { //|| test[test.len() - 2] == 0x89 && test[test.len() - 1] == 0xAB
+                    &self.key.as_ref().unwrap()
+                }
+                else {
+                    let key = bruteforce(self.sent_time.unwrap(), self.seed.unwrap(), data.clone());
+                    match key {
+                        Some(key) => {
+                            self.key = Some(Key::Session(key));
+                            self.key.as_ref().unwrap()
+                        }
+                        None => panic!("Couldn't bruteforce key!")
+                    }
+                }
+            }
+            Some(Key::Session(k)) => {
+                let mut test = data.clone();
+                decrypt_command(k, &mut test);
+
+                if test[0] == 0x45 && test[1] == 0x67 { //|| test[test.len() - 2] == 0x89 && test[test.len() - 1] == 0xAB
+                    &self.key.as_ref().unwrap()
+                }
+                else {
+                    warn!("Invalidated session key");
+                    self.key = None;
+                    panic!("Session key dead, relaunch game")
+                }
+            }
+        };
+
+        let key = match key_r {
+            Dispatch(k) | Key::Session(k) => k
         };
 
         decrypt_command(key, &mut data);
@@ -261,11 +332,19 @@ impl GameSniffer {
             return None;
         }
 
-        if command.command_id == command_id::PlayerGetTokenScRsp {
-            let token_command = command.parse_proto::<PlayerGetTokenScRsp>().unwrap();
-            let seed = token_command.secret_key_seed;
-            info!(?seed, "setting new session key");
-            self.key = Some(new_key_from_seed(seed));
+        if command.command_id == command_id::GetPlayerTokenRsp {
+            let token_command = command.parse_proto::<GetPlayerTokenRsp>().unwrap();
+            let server_rand_key = token_command.server_rand_key;
+            let seed = BASE64_STANDARD.decode(server_rand_key).unwrap();
+            let seed = match &self.key_5 {
+                Some(key) => { key.decrypt(Pkcs1v15Encrypt, &seed).unwrap() }
+                None => { panic!("RSA key didn't decrypt") }
+            };
+            self.seed = Some(u64::from_be_bytes(seed[..8].try_into().unwrap()));
+            info!(?seed, "setting new session seed");
+            let header_command = command.parse_proto::<PacketHead>().unwrap();
+            self.sent_time = Some(header_command.sent_ms);
+            info!(?self.sent_time, "setting new send time");
         }
 
         Some(command)
