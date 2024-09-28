@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use base64::prelude::*;
 use rand_mt::Mt64;
 use tracing::{debug, info, instrument, trace, warn};
 

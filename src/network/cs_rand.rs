@@ -1,5 +1,3 @@
-use std::num::Wrapping;
-
 pub struct Random {
     m_big: i32,
     m_seed: i32,
@@ -96,67 +94,5 @@ impl Random {
 
     pub fn next_safe_uint64(&mut self) -> u64 {
         (self.next_double() * (u64::MAX as f64)) as u64
-    }
-}
-
-pub struct MT19937_64 {
-    mt: [u64; 312],
-    mti: u32,
-}
-
-/// Sourced from: https://github.com/TheLostTree/evergreen/blob/master/evergreen/src/mtkey.rs
-impl MT19937_64 {
-    pub fn default() -> MT19937_64 {
-        MT19937_64 {
-            // these are used in c# for some reason but not here?
-            // N: 0x138, // 312
-            // M: 0x9C, // 156
-            // matrix_a: 0xB5026F5AA96619E9, //13043109905998158313
-            mt: [0; 312],
-            mti: 0x139,
-        }
-    }
-
-    pub fn seed(&mut self, seed: u64) {
-        self.mt[0] = seed & 0xffffffffffffffff;
-        for i in 1..312 {
-            let value = Wrapping(self.mt[i - 1] ^ (self.mt[i - 1] >> 62));
-
-            self.mt[i] =
-                ((Wrapping(6364136223846793005u64) * value).0 + (i as u64)) & 0xffffffffffffffff;
-        }
-        self.mti = 312;
-    }
-
-    pub fn next_ulong(&mut self) -> u64 {
-        if self.mti >= 312 {
-            if self.mti == 313 {
-                self.seed(5489)
-            }
-            for k in 0..311 {
-                let y = (self.mt[k] & 0xffffffff80000000) | (self.mt[k + 1] & 0x7fffffff);
-                if k < (312 - 156) {
-                    self.mt[k] = self.mt[k + 156]
-                        ^ (y >> 1)
-                        ^ (if (y & 1) == 0 { 0 } else { 0xb5026f5aa96619e9 });
-                } else {
-                    self.mt[k] = self.mt[(Wrapping(k + 156 + self.mt.len()) - Wrapping(624)).0]
-                        ^ (y >> 1)
-                        ^ (if (y & 1) == 0 { 0 } else { 0xb5026f5aa96619e9 });
-                }
-            }
-
-            let yy = (self.mt[311] & 0xffffffff80000000) | (self.mt[0] & 0x7fffffff);
-            self.mt[311] =
-                self.mt[155] ^ (yy >> 1) ^ (if yy & 1 == 0 { 0 } else { 0xb5026f5aa96619e9 });
-            self.mti = 0;
-        }
-        let mut x = self.mt[self.mti as usize];
-        self.mti += 1;
-        x ^= (x >> 29) & 0x5555555555555555;
-        x ^= (x << 17) & 0x71d67fffeda60000;
-        x ^= (x << 37) & 0xfff7eee000000000;
-        x ^= x >> 43;
-        x
     }
 }

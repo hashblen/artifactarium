@@ -54,7 +54,7 @@ use tracing::{debug, error, info, info_span, instrument, trace, warn};
 use gen::command_id;
 
 use crate::network::connection::parse_connection_packet;
-use crate::network::crypto::{bruteforce, decrypt_command, lookup_initial_key, new_key_from_seed};
+use crate::network::crypto::{bruteforce, decrypt_command, lookup_initial_key};
 use crate::network::gen::command_id::command_id_to_str;
 use crate::network::gen::proto::GetPlayerTokenRsp::GetPlayerTokenRsp;
 use crate::network::gen::proto::PacketHead::PacketHead;
@@ -346,7 +346,7 @@ impl GameSniffer {
                 None => { panic!("RSA key didn't decrypt") }
             };
             self.seed = Some(u64::from_be_bytes(seed[..8].try_into().unwrap()));
-            info!(?seed, "setting new session seed");
+            info!(?self.seed, "setting new session seed");
             let header_command = command.parse_proto::<PacketHead>().unwrap();
             self.sent_time = Some(header_command.sent_ms);
             info!(?self.sent_time, "setting new send time");
