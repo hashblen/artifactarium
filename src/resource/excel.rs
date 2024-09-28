@@ -142,10 +142,11 @@ pub struct EquiAffixExcelConfigData {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(default)]
 pub struct addProps {
-    pub propType: String,
-    pub value: f32,
-} // TODO maybe just {}
+    pub propType: Option<String>,
+    pub value: Option<f32>,
+}
 
 #[derive(Resource, Deserialize, Debug)]
 pub struct ReliquarySetExcelConfigData {
@@ -172,7 +173,7 @@ pub struct ReliquaryExcelConfigData {
     pub baseConvExp: u32,
     pub maxLevel: u32,
     pub storyId: u32,
-    pub destroyRule: String, // TODO maybe not
+    pub destroyRule: Option<String>,
     pub destroyReturnMaterial: Vec<u32>,
     pub destroyReturnMaterialCount: Vec<u32>,
     #[resource_key]
