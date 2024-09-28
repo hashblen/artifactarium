@@ -63,7 +63,7 @@ pub struct AvatarExcelConfigData {
     pub cutsceneShow: String,
     pub skillDepotId: u32,
     pub staminaRecoverSpeed: u32,
-    pub candSkillDepotIds: Vec<()>,
+    pub candSkillDepotIds: Vec<u32>,
     pub manekinJsonConfigHash: u64,
     pub manekinMotionConfig: u32,
     pub descTextMapHash: TextMapEntry,
@@ -204,4 +204,39 @@ pub struct AvatarSkillExcelConfigData {
     pub buffIcon: String,
     pub proudSkillGroupId: u32,
     pub globalValueKey: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct itemUse {
+    pub useOp: Option<String>,
+    pub useParam: Vec<String>,
+}
+
+#[derive(Resource, Deserialize, Debug)]
+pub struct MaterialExcelConfigData {
+    pub interactionTitleTextMapHash: TextMapEntry,
+    pub materialType: String,
+    pub stackLimit: u32,
+    pub itemUse: Vec<itemUse>,
+    pub effectDescTextMapHash: TextMapEntry,
+    pub specialDescTextMapHash: TextMapEntry,
+    pub typeDescTextMapHash: TextMapEntry,
+    pub effectIcon: String,
+    pub effectName: String,
+    pub picPath: Vec<String>,
+    #[serde(default)]
+    pub isSplitDrop: bool,
+    pub satiationParams: Vec<u32>,
+    pub destroyRule: String,
+    pub destroyReturnMaterial: Vec<u32>,
+    pub destroyReturnMaterialCount: Vec<u32>,
+    pub setID: Option<u32>,
+    #[resource_key]
+    pub id: u32,
+    pub nameTextMapHash: TextMapEntry,
+    pub descTextMapHash: TextMapEntry,
+    pub icon: String,
+    pub itemType: String,
+    pub weight: u32,
+    pub rank: u32,
 }
