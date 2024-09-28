@@ -130,7 +130,7 @@ pub struct WeaponExcelConfigData {
 }
 
 #[derive(Resource, Deserialize, Debug)]
-pub struct EquiAffixExcelConfigData {
+pub struct EquipAffixExcelConfigData {
     #[resource_key]
     pub GroupID: u32,
     #[resource_key]
@@ -142,6 +142,7 @@ pub struct EquiAffixExcelConfigData {
 }
 
 #[derive(Deserialize, Debug)]
+#[derive(Default)]
 #[serde(default)]
 pub struct addProps {
     pub propType: Option<String>,
